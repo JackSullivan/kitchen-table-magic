@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "mtg-script"
+version = "0.1.0"
+description = ""
+authors = ["John Sullivan <john.t.sullivan@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pandas = "^2.2.3"
+requests = "^2.32.3"
+numpy = "<2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
