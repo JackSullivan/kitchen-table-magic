@@ -81,7 +81,7 @@ def prep_and_combine(df, sf, draft_formats = []):
 
     return df.merge(sf, how='left', on='Scryfall ID')
 
-def card_binder_pool_grid(cards, binder_col, pool_col):
+def card_binder_pool_grid(cards, binder_col, pool_col, by_pools=False):
     binders = list(sorted(cards[binder_col].unique()))
     pools = list(sorted(cards[pool_col].unique()))
     styl=style(css(
@@ -102,14 +102,26 @@ def card_binder_pool_grid(cards, binder_col, pool_col):
         'h1', {'grid-row':1},
         'h2', {'grid-row':1, 'grid-column': '1 / 7'}))
 
-    res =div((div([h1(f"Binder {binder}")]+ [div([h2(pool)] +
-        [img(None, src=card.uri, alt=card.Name, clazz='card')
-            for _, card
-            in cards[(cards[binder_col] == binder) & (cards[pool_col] == pool)].iterrows()],
-        clazz=f"binder_pool_cards {pool}")
-    for pool in pools], clazz=f"binder binder_{binder}")
-        for binder in binders
-    ), clazz="binder_container")
+    binders_html = []
+
+    for binder in binders:
+        binder_html = [h1(f'Binder {binder}')]
+        binder_filter = cards[binder_col] == binder
+        if by_pools:
+            for pool in pools:
+                filter = binder_filter & (cards[pool_col] == pool)
+                pool_html = [h2(pool)]
+                for _, card in cards[filter].sort_values('cn_ord').iterrows():
+                    pool_html.append(img(None, src=card.uri, alt=card.Name, clazz='card'))
+                binder_html.append(div(pool_html, clazz=f'binder_pool_cards {pool}'))
+        else:
+            filter = binder_filter & (cards[pool_col].isin(pools))
+            for _, card in cards[filter].sort_values('cn_ord').iterrows():
+                binder_html.append(img(None, src=card.uri, alt=card.Name, clazz='card'))
+        binders_html.append(div(binder_html, clazz=f'binder binder_{binder}'))
+
+
+    res = div(binders_html, clazz='binder_container')
 
     res = html([head(styl), body(res)])
 
@@ -135,6 +147,7 @@ def collector_number_sort(cn):
 def main():
     _, manabox, scryfall = sys.argv
 
+    np.random.seed(12345)
 
     drafts = glob('*-draft.tsv')
     draft_formats = [pd.read_csv(f, sep='\t') for f in drafts]
@@ -153,7 +166,11 @@ def main():
         with open(f'{pool}.dec', 'w') as f:
             f.write(pool_str)
 
-    print(card_binder_pool_grid(pools, 'Binder Name', 'pool'))
+    with open('by_binder.html', 'w') as f:
+        f.write(card_binder_pool_grid(pools, 'Binder Name', 'pool'))
+
+    with open('by_pool.html', 'w') as f:
+        f.write(card_binder_pool_grid(pools, 'Binder Name', 'pool', True))
 
 if __name__ == '__main__':
     main()

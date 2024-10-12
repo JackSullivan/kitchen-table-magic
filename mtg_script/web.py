@@ -8,7 +8,6 @@ def elem(name):
             attrs.pop('clazz')
         attr_str = ' '.join(f'{attr}="{str(val)}"' for attr, val in attrs.items())
         if body:
-            # body = '\n'.join(map(lambda l: '  ' + l, body.split('\n') if isinstance(body, str) else body))
             body = body if isinstance(body, str) else '\n'.join(body)
             body = re.sub('^', '  ', body, flags=re.MULTILINE)
             return "<{} {}>\n{}\n</{}>".format(name, attr_str, body, name)
@@ -22,9 +21,6 @@ def css(*args):
         format_str = "\n".join(f"  {k}: {v};" for k,v in format.items())
         rules.append('{} {{\n{}\n}}'.format(template, format_str))
     return '\n\n'.join(rules)
-
-def pct(v):
-    return '{:0f}'.format(v*100.0 if v < 10 else v)
 
 table = elem("table")
 tr = elem("tr")
