@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from mtg_script.lib import get_otag, batched
-from mtg_script.web import img,div,html,head,body,style,css, h1,h2
+from mtg_script.web import img,div,html,head,body,style,css, h1,h2,tr,td, table, thead, tbody, th
 import re
 import sys
 from math import floor
@@ -75,55 +75,72 @@ def prep_and_combine(df, sf, draft_formats = []):
 
     df['is_top_drafted'] = df.Name.isin(is_top_drafted)
 
-    commander_matters = [c['name'] for c in get_otag('commander-matters')]
+    commander_matters = set([c['name'] for c in get_otag('commander-matters')]
+        + [c['name'] for c in get_otag('synergy-commander')])
 
     df = df[~df.Name.isin(commander_matters)]
 
     return df.merge(sf, how='left', on='Scryfall ID')
 
+colorord = {c:v for v,c in enumerate('W U B R G'.split())}
+def colorsort(c):
+    if isinstance(c, float):
+        return 100
+    c = eval(c)
+    if len(c) == 1 and c[0] in colorord:
+        return colorord[c[0]]
+    elif len(c) > 1:
+        return 10
+    return 1000
+
+
+common_style = style(css(
+    '.binder_container > div', {'padding': '10px',
+        'border-radius': '5px',
+        'border-color':'black',
+        'border':'solid',
+        'width':'100%'},
+    '.binder_container', {'display':'grid'},
+    '.binder_pool_cards', {
+        'display':'grid',
+        'grid-template-columns':'repeat(6, 1fr)',
+        'grid-auto-flow':'row',
+        'border-radius': '5px',
+        'border-color': 'green',
+        'border':'solid'},
+    '.card', {'object-fit':'contain', 'max-width': '100%', 'height': 'auto', },#'grid-row':2},
+    'h1', {'grid-row':1},
+    'h2', {'grid-row':1, 'grid-column': '1 / 7'}))
+
 def card_binder_pool_grid(cards, binder_col, pool_col, by_pools=False):
     binders = list(sorted(cards[binder_col].unique()))
     pools = list(sorted(cards[pool_col].unique()))
-    styl=style(css(
-        '.binder_container > div', {'padding': '10px',
-            'border-radius': '5px',
-            'border-color':'black',
-            'border':'solid',
-            'width':'100%'},
-        '.binder_container', {'display':'grid'},
-        '.binder_pool_cards', {
-            'display':'grid',
-            'grid-template-columns':'repeat(6, 1fr)',
-            'grid-auto-flow':'row',
-            'border-radius': '5px',
-            'border-color': 'green',
-            'border':'solid'},
-        '.card', {'object-fit':'contain', 'max-width': '100%', 'height': 'auto', },#'grid-row':2},
-        'h1', {'grid-row':1},
-        'h2', {'grid-row':1, 'grid-column': '1 / 7'}))
 
     binders_html = []
 
     for binder in binders:
         binder_html = [h1(f'Binder {binder}')]
         binder_filter = cards[binder_col] == binder
+        sort_cols = ['Set code', 'cn_ord']
+        if binder == "Old Border":
+            sort_cols = ['color_ord', 'Name'] + sort_cols
         if by_pools:
             for pool in pools:
                 filter = binder_filter & (cards[pool_col] == pool)
                 pool_html = [h2(pool)]
-                for _, card in cards[filter].sort_values('cn_ord').iterrows():
+                for _, card in cards[filter].sort_values(sort_cols).iterrows():
                     pool_html.append(img(None, src=card.uri, alt=card.Name, clazz='card'))
                 binder_html.append(div(pool_html, clazz=f'binder_pool_cards {pool}'))
         else:
             filter = binder_filter & (cards[pool_col].isin(pools))
-            for _, card in cards[filter].sort_values('cn_ord').iterrows():
-                binder_html.append(img(None, src=card.uri, alt=card.Name, clazz='card'))
+            for _, card in cards[filter].sort_values(sort_cols).iterrows():
+                binder_html.append(img(None, src=card.uri, alt=card.Name, clazz='card', onClick="this.style.display = 'none'"))
         binders_html.append(div(binder_html, clazz=f'binder binder_{binder}'))
 
 
     res = div(binders_html, clazz='binder_container')
 
-    res = html([head(styl), body(res)])
+    res = html([head(common_style), body(res)])
 
     return res
 
@@ -144,6 +161,77 @@ def collector_number_sort(cn):
         print(f"failed to match collector number: {cn}")
     return int(mtc[1])
 
+def display_overlaps(overlap):
+    styl = style("""
+        table {
+          border-collapse: collapse;
+          border: 2px solid rgb(140 140 140);
+          font-family: sans-serif;
+          font-size: 0.8rem;
+          letter-spacing: 1px;
+        }
+
+        caption {
+          caption-side: bottom;
+          padding: 10px;
+          font-weight: bold;
+        }
+
+        thead,
+        tfoot {
+          background-color: rgb(228 240 245);
+        }
+
+        th,
+        td {
+          border: 1px solid rgb(160 160 160);
+          padding: 8px 10px;
+        }
+
+        td:last-of-type {
+          text-align: center;
+        }
+
+        tbody > tr:nth-of-type(even) {
+          background-color: rgb(237 238 242);
+        }
+
+        tfoot th {
+          text-align: right;
+        }
+
+        tfoot td {
+          font-weight: bold;
+        }
+
+        """)
+    exploded = overlap.explode('binder_counts')
+    binders = sorted(exploded.binder_counts.unique().tolist())
+
+    binder_html = []
+    for binder in binders:
+        hdr = h2(binder)
+        theader = thead(tr([th("Name"), th("Set"), th('CN'), th("Target Binder")]))
+        rows = []
+        for id, card in exploded[exploded.binder_counts == binder].iterrows():
+            rows.append(tr([
+                td(card.Name),
+                td(card['Set code']),
+                td(card['Collector number']),
+                td(card['Binder Name'])
+            ], clazz=f"card_{id}", onClick=f"for (let el of document.getElementsByClassName('card_{id}')) el.style.display='none';"))
+        tbl = table([theader, tbody(rows)])
+        binder_html.append(div([hdr, tbl]))
+    return(html([head(styl), body(binder_html)]))
+    # table_rows = []
+    # for _, card in overlap.sort_values(['Binder Name', 'Name']).iterrows():
+    #     tr([
+    #         td(card.Name),
+    #         td(card['Set code'])
+    #     ])
+
+
+
 def main():
     _, manabox, scryfall = sys.argv
 
@@ -154,14 +242,27 @@ def main():
 
     merg = prep_and_combine(pd.read_csv(manabox), pd.read_csv(scryfall), draft_formats)
     merg['cn_ord'] = merg['Collector number'].map(collector_number_sort)
+    merg['color_ord'] = merg.colors.map(colorsort)
+
+    amb_col = merg.groupby(['Name', 'Set code', 'Collector number'])['Binder Name'].agg(binder_counts=lambda x: set(x))
+    amb_col = amb_col[amb_col.binder_counts.map(len) > 1].reset_index()
 
     pools = sealed_pools(merg, 5)
 
     pools = pools.sort_values(by=['Binder Name', 'pool', 'cn_ord'])#[['Binder Name', 'pool', 'Name', 'Collector number', 'uri']]# .to_csv(sys.stdout, sep="\t", index=False)
 
     for pool, cards in pools.groupby('pool'):
+
+        overlap = amb_col.merge(cards, how='inner', on=['Name', 'Set code', 'Collector number'], suffixes=('_amb', '_pool'))
+
+        with open(f'{pool}_disambiguate.html', 'w') as f:
+            f.write(display_overlaps(overlap))
+        # print(pool)
+        # # print(overlap.columns)
+        # print(overlap[['Name', 'Set code', 'Collector number', 'Binder Name', 'binder_counts']].sort_values(['Binder Name', 'Name']))
+
         pool_str = '\n'.join(
-            "1 {} ({}) [{}]".format(card.Name, card['Set code'], card['Collector number'])
+            "1 {} ({}) {}".format(card.Name, card['Set code'], card['Collector number'])
             for _, card in cards.iterrows())
         with open(f'{pool}.dec', 'w') as f:
             f.write(pool_str)
