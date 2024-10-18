@@ -2,7 +2,7 @@ import pandas as pd
 import requests as req
 import json
 import sys
-from lib import frameable, batched
+from mtg_script.lib import frameable, batched
 
 
 

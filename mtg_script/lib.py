@@ -1,4 +1,6 @@
+from genericpath import isfile
 import requests as req
+import json
 from itertools import islice
 
 def batched(iterable, n):
@@ -16,18 +18,30 @@ def cardlist(df, name):
     s += '\n'.join(f"{row['Name']} ({row['Set code']}) {row['Collector number']}" for _, row in df.iterrows () for _ in range(row['Quantity']))
     return s
 
-def get_otag(otag, page=1, cards=[]):
-    params = {'q': f"otag:{otag}", 'page':page}
+def get_otag(otag, page=1):
+    for x in query_scryfall(f"otag:{otag}", page):
+        yield x
+
+def query_scryfall(query, page=1):
+    params = {'q': f"({query}) game:paper", 'page':page}
     resp = req.get('https://api.scryfall.com/cards/search', params=params)
     if resp.ok:
         parsed = resp.json()
+        print(f"Received query {query} page {page}")
         for card in parsed['data']:
             yield card
         while parsed['has_more']:
-            for card in get_otag(otag, page+1, cards):
+            for card in query_scryfall(query, page+1):
                 yield card
     else:
         print(f"Response error: {resp.content}")
+
+def set_release_date(set_code):
+    resp = req.get(f'https://api.scryfall.com/sets/{set_code}')
+    if resp.ok:
+        return resp.json()['released_at']
+    else:
+        print(f'Response error for set code {set_code}: {resp.content}')
 
 def parse_types(typeline):
     mdfc_parts = typeline.split('//')
@@ -109,3 +123,62 @@ def frameable(card):
         new_card['uri'] = card['card_faces'][0]['image_uris']['border_crop']
     new_card.update(parse_types(card['type_line']))
     return new_card
+
+
+class ComputedDict(dict):
+    def __init__(self, compute_func):
+        super().__init__()
+        self.compute_func = compute_func
+
+
+    def __missing__(self, key):
+        """Called when a key is not found in the dictionary"""
+        value = self.compute_func(key)
+        self[key] = value
+        return value
+
+    def __getitem__(self, key):
+        """Override get item to handle missing keys"""
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            return self.__missing__(key)
+            import json
+            from typing import Any, TextIO
+
+class ScryfallCache:
+
+    def __init__(self, cache, default={}):
+        self.fname = f'scryfall_db/{cache}.json'
+        self.file = None
+        self.data = None
+        self.default = default
+
+    def __enter__(self):
+        """
+        Open and read the JSON file, returning the parsed data.
+
+        Returns:
+            The parsed JSON data as Python objects
+
+        Raises:
+            JSONDecodeError: If the file contains invalid JSON
+        """
+        if isfile(self.fname):
+            self.file = open(self.fname, 'r', encoding='utf-8')
+            self.data = json.load(self.file)
+            self.file.close()
+        else:
+            self.data = self.default
+        return self.data
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Write the modified data back to the JSON file.
+
+        The file is written only if no exception occurred during the context.
+        """
+        if exc_type is None:  # Only write if no exception occurred
+            with open(self.fname, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, indent=4)
+        return False  # Don't suppress any exceptions
