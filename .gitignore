@@ -1,4 +1,13 @@
+.DS_Store
 dist
 
 *.pyc
 __pycache__
+
+scryfall_db
+
+Manabox_Collection.csv
+scryfall_data.csv
+
+*.html
+*.dec
