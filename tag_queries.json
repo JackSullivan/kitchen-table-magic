@@ -1,0 +1,44 @@
+{
+  "base_tags": [
+    "lifegain-matters",
+    "lifegain",
+
+    "pp-counters-matter",
+    "gains-pp-counters",
+    "gives-pp-counters",
+    "virtual-proliferate",
+    "counter-increaser",
+
+    "discard-matters",
+    "discard-outlet",
+
+    "card-advantage",
+
+    "loot",
+    "rummage",
+    "draw",
+
+    "impulse",
+
+    "graveyard-fuel",
+
+    "removal",
+    "removal-creature-fight",
+    "removal-creature-burn",
+    "removal-creature-destroy",
+    "removal-creature-bounce",
+    "removal-creature-sacrifice",
+    "removal-creature-exile",
+    "burn",
+    "ritual",
+
+    "counterspell"
+
+  ],
+  "custom_tags": {
+    "defensive_speed": "t:creature ((cmc=1 toughness>2) or (cmc=2 toughness>3) or (cmc=3 toughness>4))",
+    "lifegain-payoff": "otag:lifegain-matters",
+    "etb": "o:\"when ~ enters\"",
+    "empty-hand": "otag:hellbent or otag:heckbent"
+  }
+}
