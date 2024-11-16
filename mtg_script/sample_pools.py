@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
-from mtg_script.lib import get_otag, batched, set_release_date, ComputedDict, ScryfallCache
-from mtg_script.web import img,div,html,head,body,style,css, h1,h2,tr,td, table, thead, tbody, th
+from mtg_script.lib import get_otag, batched, set_release_date, ComputedDict, ScryfallCache, prep_and_combine, BANLIST, collector_number_sort, colorsort
+from mtg_script.web import img,div,html,head,body,style,css, h1,h2, h3,tr,td, table, thead, tbody, th, common_style
 import re
 import sys
 import json
@@ -9,8 +9,6 @@ from math import floor
 from glob import glob
 from os.path import isfile
 
-def top_drafted(df_17, pct=0.2):
-    return df_17.sort_values(by='ALSA')[:floor(len(df_17) * pct)].Name.to_list()
 
 def rare(df):
     edhq = df.edhrec_rank.quantile(0.05)
@@ -62,79 +60,7 @@ def sample_pack(df):
     return pack
 
 
-BANLIST = ['Sol Ring']
 
-def prep_and_combine(df, sf, draft_formats = []):
-    df = df.loc[df.index.repeat(df.Quantity)]
-    df = df.drop('Quantity', axis=1)
-    basic_lands = 'Plains Island Swamp Mountain Forest'.split()
-    df = df[~df['Name'].isin(basic_lands)]
-    df = df[~df.Name.isin(BANLIST)]
-
-    df = df[df['Binder Type'] == 'binder']
-
-    is_top_drafted = [card for draft in draft_formats for card in top_drafted(draft, 0.2)]
-
-    df['is_top_drafted'] = df.Name.isin(is_top_drafted)
-
-    with ScryfallCache('commander_cards', []) as commander_cards:
-        if not commander_cards:
-            commander_cards.extend(sorted(set([c['name'] for c in get_otag('commander-matters')]
-                + [c['name'] for c in get_otag('synergy-commander')])))
-
-        df = df[~df.Name.isin(commander_cards)]
-
-    return df.merge(sf, how='left', on='Scryfall ID')
-
-colorord = {c:v for v,c in enumerate('W U B R G'.split())}
-def colorsort(c):
-    if isinstance(c, float):
-        return 100
-    c = eval(c)
-    if len(c) == 1 and c[0] in colorord:
-        return colorord[c[0]]
-    elif len(c) > 1:
-        return 10
-    return 1000
-
-
-common_style = style(css(
-    '.binder_container > div', {'padding': '10px',
-        'border-radius': '5px',
-        'border-color':'black',
-        'border':'solid',
-        'width':'100%'},
-    '.binder_container', {'display':'grid'},
-    '.binder_pool_cards', {
-        'display':'grid',
-        'grid-template-columns':'repeat(6, 1fr)',
-        'grid-auto-flow':'row',
-        'border-radius': '5px',
-        'border-color': 'green',
-        'border':'solid'},
-    '.card', {'object-fit':'contain', 'max-width': '100%', 'height': 'auto', },#'grid-row':2},
-    'h1', {'grid-row':1},
-    'h2', {'grid-row':1, 'grid-column': '1 / 7'}))
-
-def binder_sort_sheet(all_cards, binder_col):
-    binders = list(sorted(all_cards[binder_col].unique()))
-    binders_html = []
-
-    for binder in binders:
-        binder_html = [h1(f'Binder {binder}')]
-        filter = all_cards[binder_col] == binder
-        sort_cols = ['set_release_date', 'cn_ord']
-
-        for _, card in all_cards[filter].sort_values(sort_cols, ascending=False).iterrows():
-            binder_html.append(img(None, src=card.uri, alt=card.Name, clazz='card', onClick="this.style.display = 'none'"))
-        binders_html.append(div(binder_html, clazz=f'binder binder_{binder}'))
-
-
-    res = div(binders_html, clazz='binder_container')
-
-    res = html([head(common_style), body(res)])
-
-    return res
 
 def card_binder_pool_grid(cards, binder_col, pool_col, by_pools=False):
     binders = list(sorted(cards[binder_col].unique()))
@@ -142,12 +68,14 @@ def card_binder_pool_grid(cards, binder_col, pool_col, by_pools=False):
 
     binders_html = []
 
+    pool_map = {n:f'Pool {i+1}' for i,n in enumerate(pools)}
+
     for binder in binders:
         binder_html = [h1(f'Binder {binder}')]
         binder_filter = cards[binder_col] == binder
         sort_cols = ['set_release_date', 'cn_ord']
-        if binder == "Old Border":
-            sort_cols = ['color_ord', 'Name'] + sort_cols
+        # if binder == "Old Border":
+        #     sort_cols = ['color_ord', 'Name'] + sort_cols
         if by_pools:
             for pool in pools:
                 filter = binder_filter & (cards[pool_col] == pool)
@@ -158,7 +86,8 @@ def card_binder_pool_grid(cards, binder_col, pool_col, by_pools=False):
         else:
             filter = binder_filter & (cards[pool_col].isin(pools))
             for _, card in cards[filter].sort_values(sort_cols).iterrows():
-                binder_html.append(img(None, src=card.uri, alt=card.Name, clazz='card', onClick="this.style.display = 'none'"))
+                # binder_html.append(img(None, src=card.uri, alt=card.Name, clazz='card', onClick="this.style.display = 'none'"))
+                binder_html.append(div([h3(pool_map[card[pool_col]]), img(None, src=card.uri, alt=card.Name)], clazz='card', onClick="this.style.display = 'none'"))
         binders_html.append(div(binder_html, clazz=f'binder binder_{binder}'))
 
 
@@ -169,21 +98,14 @@ def card_binder_pool_grid(cards, binder_col, pool_col, by_pools=False):
     return res
 
 
-def sealed_pools(df, num_pools=5, format_str="pool_{}"):
+def sealed_pools(df, offset=0, num_pools=5, format_str="pool_{}"):
     pools = pd.DataFrame()
     for _ in range(6):
-        for idx in range(num_pools):
+        for idx in range(offset, offset+num_pools):
             pack = sample_pack(df)
             pack['pool'] = [format_str.format(idx)] * len(pack)
             pools = pd.concat([pools, pack])
     return pools
-
-cnre = re.compile('(?:[a-zA-Z]*)-?(\d+)(?:\w*)')
-def collector_number_sort(cn):
-    mtc = cnre.match(cn)
-    if not mtc:
-        print(f"failed to match collector number: {cn}")
-    return int(mtc[1])
 
 def display_overlaps(overlap):
     styl = style("""
@@ -257,22 +179,16 @@ def display_overlaps(overlap):
 
 
 def main():
-    _, manabox, scryfall = sys.argv
+    _, manabox, scryfall, offset = sys.argv
 
-    np.random.seed(12345)
+    offset = int(offset)
+
+    np.random.seed(12345 + offset)
 
     drafts = glob('*-draft.tsv')
     draft_formats = [pd.read_csv(f, sep='\t') for f in drafts]
 
-    merg = prep_and_combine(pd.read_csv(manabox), pd.read_csv(scryfall), draft_formats)
-    merg['cn_ord'] = merg['Collector number'].map(collector_number_sort)
-    merg['color_ord'] = merg.colors.map(colorsort)
-
-    with ScryfallCache('set_release_dates') as set_releases:
-        for missing in set(merg['Set code'].unique().tolist()).difference(set_releases.keys()):
-            set_releases[missing] = set_release_date(missing)
-
-        merg['set_release_date'] = merg['Set code'].map(lambda code: set_releases[code])
+    merg = prep_and_combine(pd.read_csv(manabox), pd.read_csv(scryfall), banlist=BANLIST, exclude_commander=True, draft_formats=draft_formats)
 
     # set_releases = ComputedDict(set_release_date)
     # if isfile('scryfall_db/set_release_dates.json'):
@@ -282,16 +198,16 @@ def main():
 
     # set_releases = {code:set_release_date(code) for code in merg['Set code'].unique().tolist()}
 
-    with open('scryfall_db/set_release_dates.json', 'w') as f:
-        json.dump(set_releases, f)
+    # with open('scryfall_db/set_release_dates.json', 'w') as f:
+    #     json.dump(set_releases, f)
 
-    with open('binder_sort_sheet.html', 'w') as f:
-        f.write(binder_sort_sheet(merg, 'Binder Name'))
+    # with open('binder_sort_sheet.html', 'w') as f:
+    #     f.write(binder_sort_sheet(merg, 'Binder Name'))
 
     amb_col = merg.groupby(['Name', 'Set code', 'Collector number'])['Binder Name'].agg(binder_counts=lambda x: set(x))
     amb_col = amb_col[amb_col.binder_counts.map(len) > 1].reset_index()
 
-    pools = sealed_pools(merg, 5)
+    pools = sealed_pools(merg, offset, 5)
 
     pools = pools.sort_values(by=['Binder Name', 'pool', 'cn_ord'])#[['Binder Name', 'pool', 'Name', 'Collector number', 'uri']]# .to_csv(sys.stdout, sep="\t", index=False)
 
